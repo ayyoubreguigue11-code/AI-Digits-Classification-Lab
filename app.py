@@ -1,5 +1,4 @@
 
-import time
 import warnings
 from io import BytesIO
 
@@ -7,10 +6,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image
 
 from sklearn.base import clone
-from sklearn.datasets import load_digits
+from sklearn.datasets import fetch_openml
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import (
     LinearDiscriminantAnalysis,
@@ -18,50 +17,43 @@ from sklearn.discriminant_analysis import (
 )
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
-from sklearn.manifold import TSNE, trustworthiness
 from sklearn.metrics import (
     accuracy_score,
-    auc,
     classification_report,
     confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
     roc_curve,
 )
 from sklearn.model_selection import (
-    GridSearchCV,
+    cross_val_score,
     learning_curve,
     train_test_split,
 )
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.preprocessing import label_binarize
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import OneClassSVM, SVC
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, plot_tree
 
 warnings.filterwarnings("ignore")
 
 try:
-    import umap.umap_ as umap
-    UMAP_AVAILABLE = True
-except ImportError:
-    UMAP_AVAILABLE = False
-
-CANVAS_IMPORT_ERROR = None
-
-try:
     from streamlit_drawable_canvas import st_canvas
     CANVAS_AVAILABLE = True
-except Exception as canvas_error:
+except Exception:
     CANVAS_AVAILABLE = False
-    CANVAS_IMPORT_ERROR = str(canvas_error)
 
 
 # =========================================================
-# PAGE CONFIGURATION
+# PAGE
 # =========================================================
 
 st.set_page_config(
-    page_title="AI Digits Classification Lab",
-    page_icon="🤖",
+    page_title="NeuroVision MNIST Studio",
+    page_icon="✨",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -69,32 +61,154 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .main-title {
-        font-size: clamp(2rem, 5vw, 3.2rem);
-        font-weight: 850;
-        line-height: 1.15;
-        margin-bottom: .25rem;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
     }
-    .subtitle {
-        font-size: clamp(.95rem, 2vw, 1.1rem);
-        opacity: .85;
-        line-height: 1.6;
+
+    .stApp {
+        background:
+            radial-gradient(circle at 10% 10%, rgba(99,102,241,.16), transparent 28%),
+            radial-gradient(circle at 90% 8%, rgba(14,165,233,.14), transparent 25%),
+            radial-gradient(circle at 50% 95%, rgba(168,85,247,.10), transparent 25%);
     }
-    div[data-testid="stMetric"] {
-        border: 1px solid rgba(148, 163, 184, .25);
+
+    .block-container {
+        max-width: 1450px;
+        padding-top: 1rem;
+        padding-bottom: 3rem;
+    }
+
+    .hero {
+        position: relative;
+        overflow: hidden;
+        padding: 2rem 2.1rem;
+        border-radius: 28px;
+        background:
+            linear-gradient(135deg, rgba(30,41,59,.96), rgba(49,46,129,.91)),
+            linear-gradient(90deg, #111827, #312e81);
+        border: 1px solid rgba(255,255,255,.13);
+        box-shadow: 0 25px 70px rgba(15,23,42,.28);
+        margin-bottom: 1rem;
+    }
+
+    .hero:after {
+        content: "";
+        position: absolute;
+        width: 320px;
+        height: 320px;
+        right: -85px;
+        top: -120px;
+        border-radius: 50%;
+        background: rgba(56,189,248,.18);
+        filter: blur(2px);
+    }
+
+    .hero h1 {
+        position: relative;
+        z-index: 2;
+        margin: 0;
+        color: white;
+        font-size: clamp(2.1rem, 5vw, 4rem);
+        font-weight: 800;
+        letter-spacing: -0.055em;
+    }
+
+    .hero p {
+        position: relative;
+        z-index: 2;
+        margin: .75rem 0 0;
+        max-width: 850px;
+        color: rgba(255,255,255,.83);
+        font-size: 1.08rem;
+        line-height: 1.7;
+    }
+
+    .badge {
+        position: relative;
+        z-index: 2;
+        display: inline-block;
+        margin-top: 1rem;
+        padding: .42rem .72rem;
+        border-radius: 999px;
+        color: #e0f2fe;
+        background: rgba(14,165,233,.17);
+        border: 1px solid rgba(125,211,252,.30);
+        font-size: .78rem;
+        font-weight: 700;
+        letter-spacing: .04em;
+    }
+
+    .concept-card {
+        border: 1px solid rgba(148,163,184,.22);
+        border-radius: 20px;
+        padding: 1.05rem;
+        min-height: 160px;
+        background: rgba(255,255,255,.045);
+        box-shadow: 0 12px 35px rgba(15,23,42,.07);
+        transition: transform .2s ease, box-shadow .2s ease;
+    }
+
+    .concept-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 18px 45px rgba(15,23,42,.13);
+    }
+
+    .concept-card h4 {
+        margin: 0 0 .5rem 0;
+        font-size: 1rem;
+    }
+
+    .insight {
+        border-left: 4px solid #6366f1;
         border-radius: 14px;
-        padding: .8rem;
+        padding: .9rem 1rem;
+        background: rgba(99,102,241,.08);
+        margin: .5rem 0;
     }
+
+    div[data-testid="stMetric"] {
+        border: 1px solid rgba(148,163,184,.24);
+        border-radius: 18px;
+        padding: .9rem;
+        background: rgba(255,255,255,.035);
+        box-shadow: 0 10px 30px rgba(15,23,42,.055);
+    }
+
+    div[data-testid="stMetricValue"] {
+        font-weight: 800;
+    }
+
+    div[data-testid="stTabs"] button {
+        border-radius: 12px;
+        font-weight: 650;
+    }
+
+    [data-testid="stSidebar"] {
+        border-right: 1px solid rgba(148,163,184,.18);
+    }
+
+    .footer {
+        text-align: center;
+        opacity: .72;
+        font-size: .82rem;
+        padding-top: 2rem;
+    }
+
     @media (max-width: 768px) {
         .block-container {
-            padding-top: 1rem;
-            padding-left: .7rem;
-            padding-right: .7rem;
+            padding-left: .65rem;
+            padding-right: .65rem;
+        }
+        .hero {
+            padding: 1.35rem 1.1rem;
+            border-radius: 22px;
         }
         div[data-testid="stTabs"] button {
-            font-size: .78rem;
-            padding-left: .35rem;
-            padding-right: .35rem;
+            font-size: .66rem;
+            padding-left: .28rem;
+            padding-right: .28rem;
         }
     }
     </style>
@@ -103,431 +217,310 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="main-title">🤖 AI Digits Classification Lab</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
     """
-    <div class="subtitle">
-        Plateforme académique de réduction de dimension, classification,
-        évaluation, optimisation et interprétation de modèles.
+    <div class="hero">
+        <h1>✨ NeuroVision MNIST Studio</h1>
+        <p>
+            Un laboratoire intelligent de reconnaissance des chiffres manuscrits :
+            exploration des données, réduction de dimension, comparaison des modèles,
+            généralisation, détection d'anomalies et prédiction en temps réel.
+        </p>
+        <span class="badge">MASTER IA • MNIST 28×28 • MACHINE LEARNING INTERACTIF</span>
     </div>
     """,
     unsafe_allow_html=True,
 )
-st.markdown("---")
 
 
 # =========================================================
-# HELPERS
+# DATA
 # =========================================================
+
+@st.cache_data(show_spinner="Chargement de MNIST depuis OpenML...")
+def load_mnist():
+    mnist = fetch_openml(
+        "mnist_784",
+        version=1,
+        as_frame=False,
+        parser="auto",
+    )
+    X = mnist.data.astype(np.float32) / 255.0
+    y = mnist.target.astype(int)
+    return X, y
+
 
 @st.cache_data(show_spinner=False)
-def load_dataset(class_mode: str):
-    digits = load_digits()
-    X_all = digits.data.astype(np.float64) / 16.0
-    y_all = digits.target.astype(int)
+def build_subset(
+    class_mode,
+    max_per_class,
+    random_state=42,
+):
+    X_all, y_all = load_mnist()
 
-    if class_mode == "Binary: 0 vs 1":
-        mask = np.isin(y_all, [0, 1])
-        X_all = X_all[mask]
-        y_all = y_all[mask]
+    if class_mode == "Binaire : 0 contre 1":
+        classes = [0, 1]
+    else:
+        classes = list(range(10))
 
-    return X_all, y_all
+    rng = np.random.default_rng(random_state)
+    selected_indices = []
+
+    for digit in classes:
+        indices = np.where(y_all == digit)[0]
+        count = min(max_per_class, len(indices))
+        selected_indices.extend(
+            rng.choice(indices, size=count, replace=False)
+        )
+
+    selected_indices = np.asarray(selected_indices)
+    rng.shuffle(selected_indices)
+
+    return X_all[selected_indices], y_all[selected_indices]
 
 
-def build_models(n_classes: int):
+def models_for_mode(binary_mode, k_value, tree_depth):
     models = {
-        "Logistic Regression": LogisticRegression(
-            random_state=42,
-            max_iter=3000,
+        "Régression logistique": LogisticRegression(
+            max_iter=2000,
             solver="lbfgs",
+            random_state=42,
         ),
         "LDA": LinearDiscriminantAnalysis(),
-        "Decision Tree": DecisionTreeClassifier(
-            random_state=42,
-            max_depth=5,
+        "KNN": KNeighborsClassifier(
+            n_neighbors=int(k_value)
         ),
-        "KNN": KNeighborsClassifier(n_neighbors=5),
+        "Arbre de décision": DecisionTreeClassifier(
+            max_depth=int(tree_depth),
+            random_state=42,
+        ),
     }
 
-    # QDA is kept for the binary case because it is the most stable there.
-    if n_classes == 2:
-        models["QDA"] = QuadraticDiscriminantAnalysis(reg_param=1e-3)
+    if binary_mode:
+        models["QDA"] = QuadraticDiscriminantAnalysis(
+            reg_param=0.01
+        )
 
     return models
 
 
-@st.cache_data(show_spinner=False)
-def compute_embeddings(
-    X_data,
-    umap_neighbors,
-    umap_min_dist,
-    tsne_perplexity,
-):
-    pca_model = PCA(n_components=2, random_state=42)
-    X_pca_data = pca_model.fit_transform(X_data)
+def preprocess_external_image(image):
+    gray = np.asarray(image.convert("L"), dtype=np.float32)
 
-    # Compatibility between recent and older scikit-learn versions.
-    tsne_kwargs = dict(
-        n_components=2,
-        perplexity=min(float(tsne_perplexity), len(X_data) - 1),
-        learning_rate="auto",
-        init="pca",
-        random_state=42,
+    border = np.concatenate(
+        [gray[0], gray[-1], gray[:, 0], gray[:, -1]]
     )
-    try:
-        tsne_model = TSNE(max_iter=1000, **tsne_kwargs)
-    except TypeError:
-        tsne_model = TSNE(n_iter=1000, **tsne_kwargs)
-
-    X_tsne_data = tsne_model.fit_transform(X_data)
-
-    X_umap_data = None
-    if UMAP_AVAILABLE:
-        umap_model = umap.UMAP(
-            n_components=2,
-            n_neighbors=int(umap_neighbors),
-            min_dist=float(umap_min_dist),
-            metric="euclidean",
-            random_state=42,
-        )
-        X_umap_data = umap_model.fit_transform(X_data)
-
-    return pca_model, X_pca_data, X_umap_data, X_tsne_data
-
-
-def prepare_image_for_digits(image: Image.Image):
-    """
-    Prépare une image externe pour le dataset sklearn Digits.
-
-    Étapes:
-    1. conversion en niveaux de gris;
-    2. inversion si le fond est clair;
-    3. suppression du fond vide;
-    4. recadrage autour du chiffre;
-    5. conservation des proportions;
-    6. centrage dans une image 8 × 8;
-    7. normalisation entre 0 et 1.
-    """
-    gray = np.asarray(image.convert("L"), dtype=np.float64)
-
-    # Le dataset Digits utilise un chiffre clair sur un fond sombre.
-    # Si l'image possède un fond clair, on l'inverse.
-    border_pixels = np.concatenate(
-        [
-            gray[0, :],
-            gray[-1, :],
-            gray[:, 0],
-            gray[:, -1],
-        ]
-    )
-
-    if float(np.mean(border_pixels)) > 127:
+    if border.mean() > 127:
         gray = 255.0 - gray
 
-    # Supprimer un éventuel bruit très faible.
     gray[gray < 20] = 0
+    coords = np.argwhere(gray > 20)
 
-    coordinates = np.argwhere(gray > 20)
-
-    if coordinates.size == 0:
-        empty = np.zeros((8, 8), dtype=np.float64)
+    if coords.size == 0:
+        empty = np.zeros((28, 28), dtype=np.float32)
         return empty, empty.reshape(1, -1)
 
-    y_min, x_min = coordinates.min(axis=0)
-    y_max, x_max = coordinates.max(axis=0)
+    y_min, x_min = coords.min(axis=0)
+    y_max, x_max = coords.max(axis=0)
 
-    cropped = gray[
-        max(0, y_min - 4): min(gray.shape[0], y_max + 5),
-        max(0, x_min - 4): min(gray.shape[1], x_max + 5),
+    crop = gray[
+        max(0, y_min - 5): min(gray.shape[0], y_max + 6),
+        max(0, x_min - 5): min(gray.shape[1], x_max + 6),
     ]
 
-    cropped_image = Image.fromarray(
-        np.clip(cropped, 0, 255).astype(np.uint8)
+    crop_img = Image.fromarray(
+        np.clip(crop, 0, 255).astype(np.uint8)
     )
 
-    # Redimensionner le chiffre dans une zone maximale de 6 × 6
-    # afin de garder une marge autour de lui.
-    width, height = cropped_image.size
-    scale = min(6.0 / max(width, 1), 6.0 / max(height, 1))
+    width, height = crop_img.size
+    scale = min(20 / max(width, 1), 20 / max(height, 1))
+    new_size = (
+        max(1, int(round(width * scale))),
+        max(1, int(round(height * scale))),
+    )
 
-    new_width = max(1, int(round(width * scale)))
-    new_height = max(1, int(round(height * scale)))
-
-    resized = cropped_image.resize(
-        (new_width, new_height),
+    resized = crop_img.resize(
+        new_size,
         Image.Resampling.LANCZOS,
     )
 
-    canvas_8x8 = Image.new("L", (8, 8), color=0)
+    canvas = Image.new("L", (28, 28), color=0)
+    x_offset = (28 - new_size[0]) // 2
+    y_offset = (28 - new_size[1]) // 2
+    canvas.paste(resized, (x_offset, y_offset))
 
-    offset_x = (8 - new_width) // 2
-    offset_y = (8 - new_height) // 2
-
-    canvas_8x8.paste(
-        resized,
-        (offset_x, offset_y),
-    )
-
-    array = np.asarray(canvas_8x8, dtype=np.float64)
-
-    # Renforcer légèrement les traits faibles sans saturer l'image.
+    array = np.asarray(canvas, dtype=np.float32) / 255.0
     if array.max() > 0:
         array = array / array.max()
-        array = np.power(array, 0.85)
-
-    array = np.clip(array, 0.0, 1.0)
 
     return array, array.reshape(1, -1)
 
 
-def prediction_confidence(classifier, sample_2d):
-    if hasattr(classifier, "predict_proba"):
-        return float(np.max(classifier.predict_proba(sample_2d)))
+def plot_confusion(cm, labels):
+    fig, ax = plt.subplots(figsize=(6, 5))
+    image = ax.imshow(cm)
+    fig.colorbar(image, ax=ax)
 
-    if hasattr(classifier, "decision_function"):
-        values = np.asarray(classifier.decision_function(sample_2d))
-        if values.ndim == 1:
-            value = abs(float(values[0]))
-        else:
-            value = float(np.max(values[0]))
-        return float(1.0 / (1.0 + np.exp(-value)))
-
-    return None
-
-
-def plot_embedding(embedding, y_values, title, x_label, y_label, selected_index):
-    fig, ax = plt.subplots(figsize=(9, 6))
-
-    for class_value in np.unique(y_values):
-        class_mask = y_values == class_value
-        ax.scatter(
-            embedding[class_mask, 0],
-            embedding[class_mask, 1],
-            s=24,
-            alpha=.72,
-            label=f"Digit {class_value}",
-        )
-
-    ax.scatter(
-        embedding[selected_index, 0],
-        embedding[selected_index, 1],
-        s=260,
-        marker="X",
-        label="Selected image",
+    ax.set(
+        xticks=np.arange(len(labels)),
+        yticks=np.arange(len(labels)),
+        xticklabels=labels,
+        yticklabels=labels,
+        xlabel="Classe prédite",
+        ylabel="Classe réelle",
+        title="Matrice de confusion",
     )
 
-    ax.set_title(title)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.grid(alpha=.2)
-    ax.legend(ncol=2)
+    threshold = cm.max() / 2 if cm.max() else 0
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(
+                j,
+                i,
+                str(cm[i, j]),
+                ha="center",
+                va="center",
+                color="white" if cm[i, j] > threshold else "black",
+            )
+
+    fig.tight_layout()
     return fig
 
 
-def get_grid_and_best_model(model_name, base_model, X_train, y_train):
-    param_grids = {
-        "Logistic Regression": {
-            "C": [0.01, 0.1, 1.0, 10.0],
-        },
-        "LDA": {
-            "solver": ["svd", "lsqr"],
-        },
-        "QDA": {
-            "reg_param": [0.0, 0.001, 0.01, 0.1],
-        },
-        "Decision Tree": {
-            "max_depth": [2, 3, 4, 5, 8, None],
-            "min_samples_split": [2, 5, 10],
-        },
-        "KNN": {
-            "n_neighbors": [1, 3, 5, 7, 9],
-            "weights": ["uniform", "distance"],
-        },
+def metric_explanation(name):
+    explanations = {
+        "Accuracy": "Proportion totale de prédictions correctes.",
+        "Precision": "Parmi les éléments prédits positifs, proportion réellement positive.",
+        "Recall": "Parmi les éléments réellement positifs, proportion détectée par le modèle.",
+        "F1-score": "Moyenne harmonique entre la précision et le rappel.",
+        "AUC": "Capacité du modèle à séparer les classes sur plusieurs seuils.",
     }
+    return explanations[name]
 
-    grid = GridSearchCV(
-        estimator=clone(base_model),
-        param_grid=param_grids[model_name],
-        scoring="accuracy",
-        cv=5,
-        n_jobs=-1,
+
+# =========================================================
+# SIDEBAR
+# =========================================================
+
+with st.sidebar:
+    st.markdown("## ✨ NeuroVision")
+    st.caption("Laboratoire MNIST interactif")
+    st.divider()
+    st.header("⚙️ Configuration")
+
+    class_mode = st.selectbox(
+        "Mode de classification",
+        [
+            "Binaire : 0 contre 1",
+            "Multiclasse : 0 à 9",
+        ],
     )
-    grid.fit(X_train, y_train)
-    return grid
 
+    binary_mode = class_mode.startswith("Binaire")
 
-def model_complexity_table():
-    return pd.DataFrame(
-        {
-            "Model": [
-                "Logistic Regression",
-                "LDA",
-                "QDA",
-                "Decision Tree",
-                "KNN",
-            ],
-            "Training complexity (approx.)": [
-                "Depends on the optimizer and iterations",
-                "Approximately O(nd² + d³)",
-                "Approximately O(nd² + Cd³)",
-                "Approximately O(nd log n)",
-                "Very low: model memorization",
-            ],
-            "Prediction complexity (approx.)": [
-                "O(d)",
-                "O(Cd)",
-                "O(Cd²)",
-                "O(tree depth)",
-                "O(nd)",
-            ],
-            "Main strength": [
-                "Simple probabilistic baseline",
-                "Strong linear separation",
-                "Nonlinear quadratic boundary",
-                "Interpretable rules",
-                "Flexible local classification",
-            ],
-        }
+    max_per_class = st.slider(
+        "Images utilisées par classe",
+        min_value=500,
+        max_value=5000,
+        value=2000 if binary_mode else 1000,
+        step=500,
+        help=(
+            "Un échantillon est utilisé afin de garder "
+            "l'application rapide sur téléphone."
+        ),
+    )
+
+    test_size = st.slider(
+        "Taille du jeu de test",
+        min_value=0.15,
+        max_value=0.40,
+        value=0.25,
+        step=0.05,
+    )
+
+    k_value = st.slider(
+        "K pour KNN",
+        min_value=1,
+        max_value=15,
+        value=5,
+        step=2,
+    )
+
+    tree_depth = st.slider(
+        "Profondeur de l'arbre",
+        min_value=2,
+        max_value=15,
+        value=6,
+    )
+
+    professor_mode = st.toggle(
+        "🎓 Mode professeur",
+        value=True,
+        help="Affiche des interprétations automatiques prêtes pour l'oral.",
+    )
+
+    st.divider()
+    st.caption(
+        "Projet fondé sur les TP MNIST fournis : "
+        "PCA, Logistic Regression, LDA, QDA, KNN, "
+        "Decision Tree et One-Class SVM."
     )
 
 
 # =========================================================
-# SIDEBAR CONTROLS
+# PREPARE DATA
 # =========================================================
 
-st.sidebar.header("⚙️ Control Panel")
+try:
+    X, y = build_subset(
+        class_mode,
+        max_per_class,
+    )
+except Exception as error:
+    st.error(
+        "Impossible de charger MNIST depuis OpenML. "
+        "Vérifiez la connexion Internet du serveur Streamlit."
+    )
+    st.code(str(error))
+    st.stop()
 
-class_mode = st.sidebar.selectbox(
-    "Classification task",
-    ["Binary: 0 vs 1", "Multiclass: 0 to 9"],
-)
-
-X, y = load_dataset(class_mode)
 classes = np.unique(y)
-n_classes = len(classes)
-models = build_models(n_classes)
 
-selected_model_name = st.sidebar.selectbox(
-    "Model",
-    list(models.keys()),
-)
-
-test_size = st.sidebar.slider(
-    "Test size",
-    min_value=.15,
-    max_value=.40,
-    value=.25,
-    step=.05,
-)
-
-selected_index = st.sidebar.slider(
-    "Selected image",
-    min_value=0,
-    max_value=len(X) - 1,
-    value=0,
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🗺️ Nonlinear projection")
-
-umap_neighbors = st.sidebar.slider(
-    "UMAP: n_neighbors",
-    min_value=5,
-    max_value=50,
-    value=15,
-)
-
-umap_min_dist = st.sidebar.slider(
-    "UMAP: min_dist",
-    min_value=0.0,
-    max_value=0.99,
-    value=0.10,
-    step=0.05,
-)
-
-max_perplexity = max(5, min(50, len(X) - 1))
-default_perplexity = min(30, max_perplexity)
-
-tsne_perplexity = st.sidebar.slider(
-    "t-SNE: perplexity",
-    min_value=5,
-    max_value=max_perplexity,
-    value=default_perplexity,
-)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    f"Samples: {len(X)} | Features: {X.shape[1]} | Classes: {n_classes}"
-)
-
-
-# =========================================================
-# EMBEDDINGS AND TRAINING
-# =========================================================
-
-with st.spinner("Calcul des projections PCA, UMAP et t-SNE..."):
-    pca, X_pca, X_umap, X_tsne = compute_embeddings(
-        X,
-        umap_neighbors,
-        umap_min_dist,
-        tsne_perplexity,
-    )
-
-all_indices = np.arange(len(X))
-
+indices = np.arange(len(X))
 train_indices, test_indices = train_test_split(
-    all_indices,
+    indices,
     test_size=test_size,
     random_state=42,
     stratify=y,
 )
 
-X_train = X_pca[train_indices]
-X_test = X_pca[test_indices]
-X_train_raw = X[train_indices]
-X_test_raw = X[test_indices]
+X_train = X[train_indices]
+X_test = X[test_indices]
 y_train = y[train_indices]
 y_test = y[test_indices]
 
-base_model = models[selected_model_name]
-model = clone(base_model)
-
-training_start = time.perf_counter()
-model.fit(X_train, y_train)
-training_time = time.perf_counter() - training_start
-
-prediction_start = time.perf_counter()
-y_pred = model.predict(X_test)
-prediction_time = time.perf_counter() - prediction_start
-
-accuracy = accuracy_score(y_test, y_pred)
-
-selected_sample = X[selected_index].reshape(1, -1)
-selected_sample_pca = pca.transform(selected_sample)
-selected_prediction = int(model.predict(selected_sample_pca)[0])
-selected_confidence = prediction_confidence(model, selected_sample_pca)
-
-# Modèle dédié aux dessins et images externes.
-# Il travaille directement sur les 64 pixels, sans réduction PCA,
-# afin de ne pas perdre la forme du chiffre.
-external_input_model = SVC(
-    kernel="rbf",
-    C=10.0,
-    gamma="scale",
-    probability=True,
-    random_state=42,
+model_dict = models_for_mode(
+    binary_mode,
+    k_value,
+    tree_depth,
 )
 
-external_input_model.fit(
-    X_train_raw,
-    y_train,
-)
 
-external_test_accuracy = accuracy_score(
-    y_test,
-    external_input_model.predict(X_test_raw),
+# =========================================================
+# TABS
+# =========================================================
+
+tabs = st.tabs(
+    [
+        "🏠 Vue générale",
+        "🧹 Workflow",
+        "🗜️ ACP",
+        "🤖 Modèles",
+        "📊 Métriques",
+        "🧪 Généralisation",
+        "🚨 One-Class SVM",
+        "✍️ Test intelligent",
+        "🎓 Révision orale",
+    ]
 )
 
 
@@ -535,1045 +528,1218 @@ external_test_accuracy = accuracy_score(
 # OVERVIEW
 # =========================================================
 
-st.markdown("### 🔄 Global pipeline")
-st.write(
-    "Dataset → Normalisation → PCA / UMAP / t-SNE → "
-    "Classification → Optimisation → Evaluation → Explainability. "
-    "Les dessins externes utilisent un SVM RBF sur les 64 pixels."
-)
+with tabs[0]:
+    c1, c2, c3, c4 = st.columns(4)
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Samples", len(X))
-m2.metric("Features", X.shape[1])
-m3.metric("Classes", n_classes)
-m4.metric("Current accuracy", f"{accuracy * 100:.2f}%")
+    c1.metric("Images utilisées", f"{len(X):,}")
+    c2.metric("Variables", "784")
+    c3.metric("Résolution", "28 × 28")
+    c4.metric("Classes", len(classes))
 
-st.info(
-    "PCA is used for classification and for transforming new images. "
-    "UMAP and t-SNE are used mainly for nonlinear exploratory visualization."
-)
+    st.subheader("Objectif scientifique")
 
-st.markdown("---")
-
-
-# =========================================================
-# TABS
-# =========================================================
-
-(
-    tab_prediction,
-    tab_reduction,
-    tab_evaluation,
-    tab_tuning,
-    tab_learning,
-    tab_xai,
-    tab_drawing,
-    tab_anomaly,
-    tab_math,
-    tab_project,
-) = st.tabs(
-    [
-        "🔍 Prediction",
-        "🗺️ PCA / UMAP / t-SNE",
-        "📈 Evaluation & ROC",
-        "⚙️ Hyperparameter tuning",
-        "📚 Learning & overfitting",
-        "🧠 Explainable AI",
-        "✍️ Draw / Upload",
-        "🚨 Anomaly detection",
-        "∑ Math",
-        "🏆 Project dashboard",
-    ]
-)
-
-
-# =========================================================
-# TAB: PREDICTION
-# =========================================================
-
-with tab_prediction:
-    st.subheader("Prediction panel")
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.image(
-            X[selected_index].reshape(8, 8),
-            width=230,
-            caption="Selected image",
-            clamp=True,
-        )
-
-    with c2:
-        st.metric("True label", int(y[selected_index]))
-        st.metric("Predicted label", selected_prediction)
-        st.metric(
-            "Confidence",
-            f"{selected_confidence * 100:.2f}%"
-            if selected_confidence is not None
-            else "Not available",
-        )
-
-    with c3:
-        st.metric("Model", selected_model_name)
-        st.metric("Accuracy", f"{accuracy * 100:.2f}%")
-        st.metric("Training time", f"{training_time:.6f} sec")
-
-        if selected_prediction == int(y[selected_index]):
-            st.success("✅ Correct prediction")
-        else:
-            st.error("❌ Incorrect prediction")
-
-    if st.button("🎲 Test a random image", use_container_width=True):
-        random_index = int(np.random.randint(0, len(X)))
-        random_pca = pca.transform(X[random_index].reshape(1, -1))
-        random_prediction = int(model.predict(random_pca)[0])
-
-        r1, r2 = st.columns(2)
-        with r1:
-            st.image(
-                X[random_index].reshape(8, 8),
-                width=230,
-                caption="Random image",
-                clamp=True,
-            )
-        with r2:
-            st.metric("True label", int(y[random_index]))
-            st.metric("Predicted label", random_prediction)
-
-
-# =========================================================
-# TAB: REDUCTION
-# =========================================================
-
-with tab_reduction:
-    st.subheader("Dimensionality reduction comparison")
-
-    method = st.selectbox(
-        "Projection method",
-        ["PCA", "UMAP", "t-SNE"],
-        key="projection_method",
+    st.info(
+        "Reconnaître et classifier des chiffres manuscrits, "
+        "réduire la dimension des images, comparer plusieurs "
+        "algorithmes et vérifier la capacité de généralisation."
     )
 
-    if method == "PCA":
-        embedding = X_pca
-        fig = plot_embedding(
-            embedding,
-            y,
-            "PCA projection",
-            "Principal component 1",
-            "Principal component 2",
-            selected_index,
-        )
-        score = trustworthiness(X, embedding, n_neighbors=5)
-        st.info(
-            "PCA is a linear method that preserves the directions of maximum variance."
-        )
+    st.markdown(
+        """
+        <div class="insight">
+            <b>💡 Idée forte du projet</b><br>
+            L'application ne montre pas uniquement un résultat final.
+            Elle explique le parcours complet de la donnée jusqu'à la décision,
+            puis vérifie si le modèle reste fiable sur des images jamais vues.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    elif method == "UMAP":
-        if X_umap is None:
-            embedding = None
-            st.error(
-                "UMAP is unavailable. Install the package with: pip install umap-learn"
+    st.subheader("Les TP intégrés")
+
+    cards = [
+        (
+            "ACP / PCA",
+            "Réduire 784 pixels en un nombre plus faible de composantes, "
+            "compresser, reconstruire et réduire le bruit.",
+        ),
+        (
+            "Régression logistique",
+            "Construire une frontière probabiliste de classification.",
+        ),
+        (
+            "LDA",
+            "Trouver une projection linéaire qui sépare au mieux les classes.",
+        ),
+        (
+            "QDA",
+            "Autoriser une frontière quadratique lorsque les covariances diffèrent.",
+        ),
+        (
+            "KNN",
+            "Classifier une image selon ses voisins les plus proches.",
+        ),
+        (
+            "Arbre de décision",
+            "Apprendre des règles successives et interprétables.",
+        ),
+        (
+            "One-Class SVM",
+            "Apprendre une seule classe et détecter les observations différentes.",
+        ),
+    ]
+
+    for start in range(0, len(cards), 3):
+        columns = st.columns(3)
+        for col, (title, text) in zip(
+            columns,
+            cards[start:start + 3],
+        ):
+            col.markdown(
+                f"""
+                <div class="concept-card">
+                    <h4>{title}</h4>
+                    <p>{text}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-        else:
-            embedding = X_umap
-            fig = plot_embedding(
-                embedding,
-                y,
-                "UMAP projection",
-                "UMAP dimension 1",
-                "UMAP dimension 2",
-                selected_index,
-            )
-            score = trustworthiness(X, embedding, n_neighbors=5)
-            st.info(
-                "UMAP is nonlinear and aims to preserve local neighborhoods "
-                "while retaining part of the global structure."
-            )
 
-    else:
-        embedding = X_tsne
-        fig = plot_embedding(
-            embedding,
-            y,
-            "t-SNE projection",
-            "t-SNE dimension 1",
-            "t-SNE dimension 2",
-            selected_index,
-        )
-        score = trustworthiness(X, embedding, n_neighbors=5)
-        st.info(
-            "t-SNE is nonlinear and emphasizes local neighborhoods. "
-            "Global distances between clusters must be interpreted carefully."
-        )
+    st.subheader("Exemples MNIST")
+    sample_indices = np.random.default_rng(42).choice(
+        len(X),
+        size=min(10, len(X)),
+        replace=False,
+    )
 
-    if embedding is not None:
-        st.pyplot(fig, use_container_width=True)
-        st.metric("Trustworthiness (local preservation)", f"{score:.4f}")
+    figure, axes = plt.subplots(2, 5, figsize=(10, 4))
+    for axis, idx in zip(axes.ravel(), sample_indices):
+        axis.imshow(X[idx].reshape(28, 28), cmap="gray")
+        axis.set_title(f"Classe {y[idx]}")
+        axis.axis("off")
+    figure.tight_layout()
+    st.pyplot(figure)
+    plt.close(figure)
 
-    st.markdown("### Academic comparison")
-    reduction_comparison = pd.DataFrame(
+
+# =========================================================
+# WORKFLOW
+# =========================================================
+
+with tabs[1]:
+    st.header("Workflow complet d'un projet Machine Learning")
+
+    steps = [
+        (
+            "1. Collecte et compréhension",
+            "Identifier la source des données, la cible, les variables "
+            "et la nature du problème.",
+        ),
+        (
+            "2. Séparation des données",
+            "Créer un jeu d'entraînement et un jeu de test indépendant.",
+        ),
+        (
+            "3. Data Cleaning",
+            "Traiter les valeurs manquantes, doublons, erreurs et outliers.",
+        ),
+        (
+            "4. Feature Selection",
+            "Choisir les variables les plus utiles sans en créer de nouvelles.",
+        ),
+        (
+            "5. Feature Extraction",
+            "Créer de nouvelles caractéristiques, par exemple les composantes ACP.",
+        ),
+        (
+            "6. Entraînement et optimisation",
+            "Ajuster le modèle et ses hyperparamètres.",
+        ),
+        (
+            "7. Évaluation et généralisation",
+            "Mesurer les performances sur des données jamais vues.",
+        ),
+    ]
+
+    for title, description in steps:
+        with st.expander(title, expanded=title.startswith("1.")):
+            st.write(description)
+
+    st.subheader("Data Cleaning et outliers")
+    st.write(
+        "Pour des données tabulaires, les outliers peuvent être détectés "
+        "avec le boxplot, l'IQR, le Z-score ou des méthodes comme "
+        "One-Class SVM. Pour MNIST, on vérifie surtout les pixels, "
+        "les images vides, mal centrées ou très bruitées."
+    )
+
+    st.subheader("Feature Selection vs Feature Extraction")
+    comparison = pd.DataFrame(
         {
-            "Method": ["PCA", "UMAP", "t-SNE"],
-            "Type": ["Linear", "Nonlinear", "Nonlinear"],
-            "Main objective": [
-                "Preserve global variance",
-                "Preserve local and part of global structure",
-                "Preserve local neighborhoods",
+            "Technique": [
+                "Feature Selection",
+                "Feature Extraction",
             ],
-            "Transform new data": [
-                "Yes",
-                "Yes, using a fitted UMAP model",
-                "Not directly with sklearn TSNE",
+            "Principe": [
+                "Conserver une partie des variables originales",
+                "Créer de nouvelles variables synthétiques",
             ],
-            "Use in this app": [
-                "Classification and visualization",
-                "Exploratory visualization",
-                "Exploratory visualization",
+            "Exemple": [
+                "Corrélation, importance, RFE",
+                "ACP / PCA",
+            ],
+            "Quand ?": [
+                "Variables inutiles ou redondantes",
+                "Dimension très élevée et variables corrélées",
             ],
         }
     )
-    st.dataframe(reduction_comparison, use_container_width=True, hide_index=True)
+    st.dataframe(
+        comparison,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader("Corrélation")
+    pixel_variance = X_train.var(axis=0)
+    informative_pixels = np.argsort(pixel_variance)[-20:]
+
+    correlation_df = pd.DataFrame(
+        X_train[:, informative_pixels]
+    ).corr()
+
+    figure, ax = plt.subplots(figsize=(7, 5))
+    image = ax.imshow(correlation_df)
+    fig_colorbar = figure.colorbar(image, ax=ax)
+    fig_colorbar.set_label("Corrélation")
+    ax.set_title("Corrélation entre 20 pixels informatifs")
+    ax.set_xlabel("Pixels sélectionnés")
+    ax.set_ylabel("Pixels sélectionnés")
+    st.pyplot(figure)
+    plt.close(figure)
 
 
 # =========================================================
-# TAB: EVALUATION AND ROC
+# PCA
 # =========================================================
 
-with tab_evaluation:
-    st.subheader("Model evaluation")
-
-    cm = confusion_matrix(y_test, y_pred)
-
-    e1, e2, e3 = st.columns(3)
-    e1.metric("Accuracy", f"{accuracy * 100:.2f}%")
-    e2.metric("Training time", f"{training_time:.6f} sec")
-    e3.metric("Prediction time", f"{prediction_time:.6f} sec")
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.write("Confusion matrix")
-        st.dataframe(
-            pd.DataFrame(
-                cm,
-                index=[f"True {c}" for c in classes],
-                columns=[f"Pred {c}" for c in classes],
-            ),
-            use_container_width=True,
-        )
-
-    with c2:
-        fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
-        image_cm = ax_cm.imshow(cm)
-        ax_cm.set_title("Confusion matrix")
-        ax_cm.set_xlabel("Predicted class")
-        ax_cm.set_ylabel("True class")
-        ax_cm.set_xticks(range(len(classes)))
-        ax_cm.set_yticks(range(len(classes)))
-        ax_cm.set_xticklabels(classes)
-        ax_cm.set_yticklabels(classes)
-
-        for row in range(cm.shape[0]):
-            for col in range(cm.shape[1]):
-                ax_cm.text(col, row, int(cm[row, col]), ha="center", va="center")
-
-        fig_cm.colorbar(image_cm, ax=ax_cm)
-        st.pyplot(fig_cm, use_container_width=True)
-
-    st.markdown("### Classification report")
-    report_df = pd.DataFrame(
-        classification_report(
-            y_test,
-            y_pred,
-            output_dict=True,
-            zero_division=0,
-        )
-    ).transpose()
-    st.dataframe(report_df.round(4), use_container_width=True)
-
-    st.markdown("### ROC curve and AUC")
-
-    if hasattr(model, "predict_proba"):
-        y_score = model.predict_proba(X_test)
-    elif hasattr(model, "decision_function"):
-        y_score = model.decision_function(X_test)
-    else:
-        y_score = None
-
-    if y_score is None:
-        st.warning("This model does not provide probability or decision scores.")
-    else:
-        fig_roc, ax_roc = plt.subplots(figsize=(8, 5))
-
-        if n_classes == 2:
-            if np.asarray(y_score).ndim == 2:
-                binary_score = np.asarray(y_score)[:, 1]
-            else:
-                binary_score = np.asarray(y_score)
-
-            fpr, tpr, _ = roc_curve(y_test, binary_score)
-            auc_value = auc(fpr, tpr)
-
-            ax_roc.plot(fpr, tpr, label=f"AUC = {auc_value:.4f}")
-            ax_roc.plot([0, 1], [0, 1], linestyle="--")
-            ax_roc.legend()
-            st.metric("AUC", f"{auc_value:.4f}")
-
-        else:
-            y_binary = label_binarize(y_test, classes=classes)
-            y_score_array = np.asarray(y_score)
-
-            if y_score_array.ndim == 1:
-                st.warning("Multiclass ROC is unavailable for this score format.")
-            else:
-                auc_values = []
-                for class_index, class_value in enumerate(classes):
-                    fpr, tpr, _ = roc_curve(
-                        y_binary[:, class_index],
-                        y_score_array[:, class_index],
-                    )
-                    class_auc = auc(fpr, tpr)
-                    auc_values.append(class_auc)
-                    ax_roc.plot(
-                        fpr,
-                        tpr,
-                        label=f"Class {class_value}: AUC={class_auc:.3f}",
-                    )
-
-                ax_roc.plot([0, 1], [0, 1], linestyle="--")
-                ax_roc.legend(ncol=2, fontsize=8)
-                st.metric("Mean AUC", f"{np.mean(auc_values):.4f}")
-
-        ax_roc.set_title("ROC curve")
-        ax_roc.set_xlabel("False positive rate")
-        ax_roc.set_ylabel("True positive rate")
-        ax_roc.grid(alpha=.2)
-        st.pyplot(fig_roc, use_container_width=True)
-
-
-# =========================================================
-# TAB: HYPERPARAMETER TUNING
-# =========================================================
-
-with tab_tuning:
-    st.subheader("Hyperparameter tuning with GridSearchCV")
+with tabs[2]:
+    st.header("ACP / PCA appliquée à MNIST")
 
     st.write(
-        "The search compares several configurations using 5-fold cross-validation."
+        "L'ACP transforme les 784 pixels originaux en composantes "
+        "non corrélées, classées selon la quantité de variance expliquée."
     )
 
-    if st.button("🚀 Run GridSearchCV", use_container_width=True):
-        with st.spinner("Searching for the best parameters..."):
-            grid = get_grid_and_best_model(
-                selected_model_name,
-                base_model,
-                X_train,
-                y_train,
-            )
+    n_components = st.slider(
+        "Nombre de composantes",
+        min_value=2,
+        max_value=150,
+        value=50,
+        step=5,
+        key="pca_components",
+    )
 
-        st.success("Optimization completed")
-        st.metric("Best CV accuracy", f"{grid.best_score_ * 100:.2f}%")
-        st.write("Best parameters")
-        st.json(grid.best_params_)
+    pca = PCA(
+        n_components=n_components,
+        random_state=42,
+    )
+    X_train_pca = pca.fit_transform(X_train)
+    X_test_pca = pca.transform(X_test)
 
-        tuned_test_accuracy = accuracy_score(
-            y_test,
-            grid.best_estimator_.predict(X_test),
-        )
-        st.metric("Tuned test accuracy", f"{tuned_test_accuracy * 100:.2f}%")
+    explained = pca.explained_variance_ratio_.sum()
+    compression = 100 * n_components / 784
 
-        cv_results = pd.DataFrame(grid.cv_results_)[
-            ["params", "mean_test_score", "std_test_score", "rank_test_score"]
-        ].sort_values("rank_test_score")
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Dimension originale", "784")
+    p2.metric("Dimension réduite", n_components)
+    p3.metric("Variance conservée", f"{explained * 100:.2f}%")
 
-        cv_results["mean_test_score"] = cv_results["mean_test_score"].round(4)
-        cv_results["std_test_score"] = cv_results["std_test_score"].round(4)
+    st.caption(
+        f"Le taux de dimension conservée est de {compression:.2f}%."
+    )
 
-        st.dataframe(
-            cv_results.head(15),
-            use_container_width=True,
-            hide_index=True,
-        )
+    st.subheader("Variance expliquée cumulée")
+    pca_full = PCA(
+        n_components=min(200, len(X_train) - 1),
+        random_state=42,
+    )
+    pca_full.fit(X_train)
+    cumulative_variance = np.cumsum(
+        pca_full.explained_variance_ratio_
+    )
+
+    figure, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(
+        np.arange(1, len(cumulative_variance) + 1),
+        cumulative_variance,
+    )
+    ax.axhline(0.90, linestyle="--")
+    ax.axhline(0.95, linestyle="--")
+    ax.set(
+        xlabel="Nombre de composantes",
+        ylabel="Variance cumulée",
+        title="Choix du nombre de composantes",
+    )
+    ax.grid(alpha=0.25)
+    st.pyplot(figure)
+    plt.close(figure)
+
+    st.subheader("Compression et reconstruction")
+    image_index = st.slider(
+        "Image à reconstruire",
+        0,
+        len(X_test) - 1,
+        0,
+        key="pca_image_index",
+    )
+
+    original = X_test[image_index]
+    reconstructed = pca.inverse_transform(
+        X_test_pca[image_index].reshape(1, -1)
+    )[0]
+
+    figure, axes = plt.subplots(1, 2, figsize=(7, 3.5))
+    axes[0].imshow(original.reshape(28, 28), cmap="gray")
+    axes[0].set_title("Image originale")
+    axes[1].imshow(
+        reconstructed.reshape(28, 28),
+        cmap="gray",
+    )
+    axes[1].set_title(
+        f"Reconstruction ({n_components} CP)"
+    )
+    for axis in axes:
+        axis.axis("off")
+    st.pyplot(figure)
+    plt.close(figure)
+
+    st.subheader("Réduction du bruit")
+    noise_level = st.slider(
+        "Niveau du bruit",
+        0.05,
+        0.60,
+        0.25,
+        0.05,
+    )
+
+    rng = np.random.default_rng(42)
+    noisy = np.clip(
+        original.reshape(28, 28)
+        + rng.normal(0, noise_level, (28, 28)),
+        0,
+        1,
+    )
+
+    denoised = pca.inverse_transform(
+        pca.transform(noisy.reshape(1, -1))
+    )[0]
+
+    figure, axes = plt.subplots(1, 3, figsize=(10, 3.2))
+    axes[0].imshow(original.reshape(28, 28), cmap="gray")
+    axes[0].set_title("Originale")
+    axes[1].imshow(noisy, cmap="gray")
+    axes[1].set_title("Bruitée")
+    axes[2].imshow(denoised.reshape(28, 28), cmap="gray")
+    axes[2].set_title("Débruitée par ACP")
+    for axis in axes:
+        axis.axis("off")
+    st.pyplot(figure)
+    plt.close(figure)
 
 
 # =========================================================
-# TAB: LEARNING CURVE AND OVERFITTING
+# MODELS
 # =========================================================
 
-with tab_learning:
-    st.subheader("Learning curve")
+with tabs[3]:
+    st.header("Comparaison interactive des modèles")
 
-    train_sizes, train_scores, validation_scores = learning_curve(
-        clone(base_model),
-        X_pca,
-        y,
-        cv=5,
-        train_sizes=np.linspace(.2, 1.0, 5),
-        scoring="accuracy",
-        n_jobs=-1,
+    selected_model_name = st.selectbox(
+        "Choisir un modèle à analyser",
+        list(model_dict.keys()),
     )
 
-    train_mean = train_scores.mean(axis=1)
-    validation_mean = validation_scores.mean(axis=1)
-
-    fig_learning, ax_learning = plt.subplots(figsize=(8, 5))
-    ax_learning.plot(train_sizes, train_mean, marker="o", label="Training score")
-    ax_learning.plot(
-        train_sizes,
-        validation_mean,
-        marker="o",
-        label="Validation score",
-    )
-    ax_learning.set_title(f"Learning curve - {selected_model_name}")
-    ax_learning.set_xlabel("Training samples")
-    ax_learning.set_ylabel("Accuracy")
-    ax_learning.set_ylim(0, 1.05)
-    ax_learning.grid(alpha=.2)
-    ax_learning.legend()
-    st.pyplot(fig_learning, use_container_width=True)
-
-    st.info(
-        "A large persistent gap between training and validation scores "
-        "may indicate overfitting."
+    use_pca_for_model = st.checkbox(
+        "Utiliser l'ACP avant la classification",
+        value=True,
+        help=(
+            "La réduction de dimension accélère les modèles "
+            "et reproduit le workflow des TP."
+        ),
     )
 
-    st.markdown("### Overfitting demonstration with Decision Tree")
+    model_components = st.slider(
+        "Composantes utilisées par le modèle",
+        10,
+        100,
+        40,
+        10,
+        disabled=not use_pca_for_model,
+    )
 
-    depths = [1, 2, 3, 4, 5, 8, 12, None]
-    overfitting_results = []
+    base_model = clone(model_dict[selected_model_name])
 
-    for depth in depths:
-        tree = DecisionTreeClassifier(random_state=42, max_depth=depth)
-        tree.fit(X_train, y_train)
-        overfitting_results.append(
-            {
-                "max_depth": "None" if depth is None else str(depth),
-                "Training accuracy": accuracy_score(
-                    y_train,
-                    tree.predict(X_train),
+    if use_pca_for_model:
+        estimator = Pipeline(
+            [
+                (
+                    "pca",
+                    PCA(
+                        n_components=model_components,
+                        random_state=42,
+                    ),
                 ),
-                "Test accuracy": accuracy_score(
+                ("model", base_model),
+            ]
+        )
+    else:
+        estimator = base_model
+
+    with st.spinner(
+        f"Entraînement de {selected_model_name}..."
+    ):
+        estimator.fit(X_train, y_train)
+
+    train_prediction = estimator.predict(X_train)
+    test_prediction = estimator.predict(X_test)
+
+    train_accuracy = accuracy_score(
+        y_train,
+        train_prediction,
+    )
+    test_accuracy = accuracy_score(
+        y_test,
+        test_prediction,
+    )
+
+    gap = train_accuracy - test_accuracy
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric(
+        "Accuracy entraînement",
+        f"{train_accuracy * 100:.2f}%",
+    )
+    m2.metric(
+        "Accuracy test",
+        f"{test_accuracy * 100:.2f}%",
+    )
+    m3.metric(
+        "Écart train-test",
+        f"{gap * 100:.2f} points",
+    )
+
+    if gap > 0.08:
+        st.warning(
+            "Le modèle présente un risque d'overfitting : "
+            "la performance d'entraînement est nettement "
+            "supérieure à celle du test."
+        )
+    elif test_accuracy < 0.80:
+        st.warning(
+            "Le modèle peut être en underfitting : "
+            "les performances restent faibles."
+        )
+    else:
+        st.success(
+            "Les performances train/test sont cohérentes. "
+            "Le modèle montre une bonne capacité de généralisation "
+            "sur cet échantillon."
+        )
+
+    st.subheader("Classement automatique")
+
+    ranking_rows = []
+    for name, candidate in model_dict.items():
+        if use_pca_for_model:
+            current_estimator = Pipeline(
+                [
+                    (
+                        "pca",
+                        PCA(
+                            n_components=model_components,
+                            random_state=42,
+                        ),
+                    ),
+                    ("model", clone(candidate)),
+                ]
+            )
+        else:
+            current_estimator = clone(candidate)
+
+        current_estimator.fit(X_train, y_train)
+        prediction = current_estimator.predict(X_test)
+
+        ranking_rows.append(
+            {
+                "Modèle": name,
+                "Accuracy": accuracy_score(
                     y_test,
-                    tree.predict(X_test),
+                    prediction,
+                ),
+                "Precision": precision_score(
+                    y_test,
+                    prediction,
+                    average="binary" if binary_mode else "weighted",
+                    zero_division=0,
+                ),
+                "Recall": recall_score(
+                    y_test,
+                    prediction,
+                    average="binary" if binary_mode else "weighted",
+                    zero_division=0,
+                ),
+                "F1-score": f1_score(
+                    y_test,
+                    prediction,
+                    average="binary" if binary_mode else "weighted",
+                    zero_division=0,
                 ),
             }
         )
 
-    overfitting_df = pd.DataFrame(overfitting_results)
+    ranking = pd.DataFrame(ranking_rows).sort_values(
+        "F1-score",
+        ascending=False,
+    )
 
-    fig_overfit, ax_overfit = plt.subplots(figsize=(8, 5))
-    x_positions = np.arange(len(overfitting_df))
-    ax_overfit.plot(
-        x_positions,
-        overfitting_df["Training accuracy"],
-        marker="o",
-        label="Training accuracy",
+    for column in [
+        "Accuracy",
+        "Precision",
+        "Recall",
+        "F1-score",
+    ]:
+        ranking[column] = ranking[column].map(
+            lambda value: f"{value * 100:.2f}%"
+        )
+
+    st.dataframe(
+        ranking,
+        use_container_width=True,
+        hide_index=True,
     )
-    ax_overfit.plot(
-        x_positions,
-        overfitting_df["Test accuracy"],
-        marker="o",
-        label="Test accuracy",
-    )
-    ax_overfit.set_xticks(x_positions)
-    ax_overfit.set_xticklabels(overfitting_df["max_depth"])
-    ax_overfit.set_xlabel("Maximum tree depth")
-    ax_overfit.set_ylabel("Accuracy")
-    ax_overfit.set_ylim(0, 1.05)
-    ax_overfit.grid(alpha=.2)
-    ax_overfit.legend()
-    st.pyplot(fig_overfit, use_container_width=True)
+
+    if selected_model_name == "Arbre de décision":
+        st.subheader("Visualisation de l'arbre")
+
+        tree_for_plot = DecisionTreeClassifier(
+            max_depth=min(tree_depth, 4),
+            random_state=42,
+        )
+        pca_tree = PCA(
+            n_components=min(10, X_train.shape[1]),
+            random_state=42,
+        )
+        transformed = pca_tree.fit_transform(X_train)
+        tree_for_plot.fit(transformed, y_train)
+
+        figure, ax = plt.subplots(figsize=(14, 6))
+        plot_tree(
+            tree_for_plot,
+            filled=True,
+            max_depth=3,
+            fontsize=7,
+            ax=ax,
+        )
+        st.pyplot(figure)
+        plt.close(figure)
 
 
 # =========================================================
-# TAB: EXPLAINABLE AI
+# METRICS
 # =========================================================
 
-with tab_xai:
-    st.subheader("Explainable AI")
+with tabs[4]:
+    st.header("Métriques d'évaluation")
 
-    st.write(
-        "Permutation importance measures how much model performance decreases "
-        "when one original pixel is randomly shuffled."
+    metrics_model_name = st.selectbox(
+        "Modèle évalué",
+        list(model_dict.keys()),
+        key="metrics_model",
     )
 
-    # The main classifier receives only two PCA components. Therefore, its direct
-    # permutation importance contains only two values and cannot be reshaped to 8×8.
-    # To obtain a true pixel-level map, we evaluate a complete pipeline:
-    # 64 original pixels -> PCA -> selected classifier.
-    xai_pipeline = Pipeline(
-        steps=[
-            ("pca", PCA(n_components=2, random_state=42)),
-            ("classifier", clone(base_model)),
+    metrics_estimator = Pipeline(
+        [
+            (
+                "pca",
+                PCA(
+                    n_components=40,
+                    random_state=42,
+                ),
+            ),
+            ("model", clone(model_dict[metrics_model_name])),
+        ]
+    )
+    metrics_estimator.fit(X_train, y_train)
+    y_pred = metrics_estimator.predict(X_test)
+
+    average_mode = (
+        "binary" if binary_mode else "weighted"
+    )
+
+    values = {
+        "Accuracy": accuracy_score(y_test, y_pred),
+        "Precision": precision_score(
+            y_test,
+            y_pred,
+            average=average_mode,
+            zero_division=0,
+        ),
+        "Recall": recall_score(
+            y_test,
+            y_pred,
+            average=average_mode,
+            zero_division=0,
+        ),
+        "F1-score": f1_score(
+            y_test,
+            y_pred,
+            average=average_mode,
+            zero_division=0,
+        ),
+    }
+
+    metric_columns = st.columns(4)
+    for column, (name, value) in zip(
+        metric_columns,
+        values.items(),
+    ):
+        column.metric(
+            name,
+            f"{value * 100:.2f}%",
+        )
+        column.caption(metric_explanation(name))
+
+    cm = confusion_matrix(y_test, y_pred)
+    st.pyplot(plot_confusion(cm, classes))
+    plt.close("all")
+
+    st.subheader("Rapport de classification")
+    report = classification_report(
+        y_test,
+        y_pred,
+        output_dict=True,
+        zero_division=0,
+    )
+    st.dataframe(
+        pd.DataFrame(report).transpose(),
+        use_container_width=True,
+    )
+
+    if binary_mode and hasattr(
+        metrics_estimator,
+        "predict_proba",
+    ):
+        probabilities = metrics_estimator.predict_proba(
+            X_test
+        )[:, 1]
+        fpr, tpr, _ = roc_curve(y_test, probabilities)
+        auc_value = roc_auc_score(
+            y_test,
+            probabilities,
+        )
+
+        st.metric(
+            "AUC",
+            f"{auc_value:.4f}",
+        )
+        st.caption(metric_explanation("AUC"))
+
+        figure, ax = plt.subplots(figsize=(6, 5))
+        ax.plot(
+            fpr,
+            tpr,
+            label=f"AUC = {auc_value:.4f}",
+        )
+        ax.plot([0, 1], [0, 1], linestyle="--")
+        ax.set(
+            xlabel="False Positive Rate",
+            ylabel="True Positive Rate",
+            title="Courbe ROC",
+        )
+        ax.legend()
+        ax.grid(alpha=0.25)
+        st.pyplot(figure)
+        plt.close(figure)
+
+
+# =========================================================
+# GENERALIZATION
+# =========================================================
+
+with tabs[5]:
+    st.header("Le modèle est-il généralisé ?")
+
+    st.info(
+        "Un modèle généralisé conserve de bonnes performances "
+        "sur des données qu'il n'a jamais vues."
+    )
+
+    general_model_name = st.selectbox(
+        "Modèle à tester",
+        list(model_dict.keys()),
+        key="general_model",
+    )
+
+    general_estimator = Pipeline(
+        [
+            (
+                "pca",
+                PCA(
+                    n_components=40,
+                    random_state=42,
+                ),
+            ),
+            (
+                "model",
+                clone(model_dict[general_model_name]),
+            ),
         ]
     )
 
-    xai_pipeline.fit(X_train_raw, y_train)
-
-    with st.spinner("Calculating pixel-level permutation importance..."):
-        importance_result = permutation_importance(
-            xai_pipeline,
-            X_test_raw,
-            y_test,
-            n_repeats=10,
-            random_state=42,
+    with st.spinner("Calcul de la validation croisée..."):
+        cv_scores = cross_val_score(
+            general_estimator,
+            X,
+            y,
+            cv=5,
             scoring="accuracy",
             n_jobs=-1,
         )
 
-    importance_values = importance_result.importances_mean
+    g1, g2, g3 = st.columns(3)
+    g1.metric(
+        "Accuracy CV moyenne",
+        f"{cv_scores.mean() * 100:.2f}%",
+    )
+    g2.metric(
+        "Écart-type",
+        f"{cv_scores.std() * 100:.2f}%",
+    )
+    g3.metric(
+        "Nombre de folds",
+        "5",
+    )
 
-    if importance_values.size == 64:
-        importance_image = importance_values.reshape(8, 8)
+    figure, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(
+        [f"Fold {i}" for i in range(1, 6)],
+        cv_scores,
+    )
+    ax.axhline(
+        cv_scores.mean(),
+        linestyle="--",
+        label="Moyenne",
+    )
+    ax.set(
+        ylabel="Accuracy",
+        title="Validation croisée",
+        ylim=(max(0, cv_scores.min() - 0.05), 1.0),
+    )
+    ax.legend()
+    st.pyplot(figure)
+    plt.close(figure)
 
-        fig_importance, ax_importance = plt.subplots(figsize=(7, 6))
-        image_plot = ax_importance.imshow(importance_image)
-        ax_importance.set_title(
-            f"Pixel permutation importance - {selected_model_name}"
-        )
-        ax_importance.set_xticks([])
-        ax_importance.set_yticks([])
-        fig_importance.colorbar(image_plot, ax=ax_importance)
+    st.subheader("Courbe d'apprentissage")
 
-        st.pyplot(fig_importance, use_container_width=True)
-
-        st.info(
-            "The strongest zones correspond to original pixels whose random "
-            "modification reduces the model's accuracy the most."
-        )
-    else:
-        st.warning(
-            f"Pixel map unavailable: expected 64 importance values, "
-            f"but received {importance_values.size}."
-        )
-
-    st.markdown("### Importance of the two PCA components")
-
-    pca_importance_result = permutation_importance(
-        model,
-        X_test,
-        y_test,
-        n_repeats=10,
-        random_state=42,
+    sizes, train_scores, validation_scores = learning_curve(
+        general_estimator,
+        X,
+        y,
+        cv=3,
+        train_sizes=np.linspace(0.2, 1.0, 5),
         scoring="accuracy",
         n_jobs=-1,
     )
 
-    pca_importance_df = pd.DataFrame(
-        {
-            "Component": ["PC1", "PC2"],
-            "Importance": pca_importance_result.importances_mean,
-        }
+    figure, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(
+        sizes,
+        train_scores.mean(axis=1),
+        marker="o",
+        label="Entraînement",
     )
-
-    st.dataframe(
-        pca_importance_df.round(6),
-        use_container_width=True,
-        hide_index=True,
+    ax.plot(
+        sizes,
+        validation_scores.mean(axis=1),
+        marker="o",
+        label="Validation",
     )
-
-    fig_pca_importance, ax_pca_importance = plt.subplots(figsize=(6, 4))
-    ax_pca_importance.bar(
-        pca_importance_df["Component"],
-        pca_importance_df["Importance"],
+    ax.set(
+        xlabel="Nombre d'images d'entraînement",
+        ylabel="Accuracy",
+        title="Courbe d'apprentissage",
     )
-    ax_pca_importance.set_title("PCA component importance")
-    ax_pca_importance.set_ylabel("Mean decrease in accuracy")
-    ax_pca_importance.grid(axis="y", alpha=.2)
-    st.pyplot(fig_pca_importance, use_container_width=True)
+    ax.legend()
+    ax.grid(alpha=0.25)
+    st.pyplot(figure)
+    plt.close(figure)
 
-    if selected_model_name == "Decision Tree":
-        st.markdown("### Native Decision Tree pixel importance")
+    st.subheader("Diagnostic intelligent")
 
-        raw_tree = DecisionTreeClassifier(
-            random_state=42,
-            max_depth=5,
+    if cv_scores.mean() >= 0.90 and cv_scores.std() <= 0.03:
+        diagnostic = (
+            "Le modèle présente une généralisation solide : "
+            "la performance moyenne est élevée et stable entre les folds."
         )
-        raw_tree.fit(X_train_raw, y_train)
+    elif cv_scores.std() > 0.05:
+        diagnostic = (
+            "La performance varie fortement entre les folds. "
+            "Il faut vérifier l'échantillonnage et les hyperparamètres."
+        )
+    else:
+        diagnostic = (
+            "La généralisation reste acceptable, mais peut être améliorée "
+            "par l'optimisation et davantage de données."
+        )
 
-        native_importance = raw_tree.feature_importances_
+    st.success(diagnostic)
 
-        if native_importance.size == 64:
-            native_importance_image = native_importance.reshape(8, 8)
-
-            fig_native, ax_native = plt.subplots(figsize=(7, 6))
-            native_plot = ax_native.imshow(native_importance_image)
-            ax_native.set_title("Decision Tree native pixel importance")
-            ax_native.set_xticks([])
-            ax_native.set_yticks([])
-            fig_native.colorbar(native_plot, ax=ax_native)
-
-            st.pyplot(fig_native, use_container_width=True)
+    if professor_mode:
+        st.subheader("Réponse orale conseillée")
+        st.info(
+            "Le modèle est généralisé lorsque ses performances restent "
+            "élevées et stables sur des données jamais vues. Ici, nous "
+            "le vérifions avec un jeu de test indépendant, une validation "
+            "croisée à cinq folds et une courbe d'apprentissage."
+        )
 
 
 # =========================================================
-# TAB: DRAW OR UPLOAD
+# ONE-CLASS SVM
 # =========================================================
 
-with tab_drawing:
-    st.subheader("Dessinez ou téléchargez un chiffre")
+with tabs[6]:
+    st.header("One-Class SVM : détection d'une seule classe")
 
-    st.info(
-        "Le dessin est recadré, centré, converti en image 8 × 8 puis "
-        "classé directement à partir de ses 64 pixels par un SVM RBF. "
-        "PCA reste réservé à la visualisation."
+    target_digit = st.selectbox(
+        "Chiffre considéré comme classe normale",
+        list(range(10)),
+    )
+
+    if target_digit not in np.unique(y):
+        st.warning(
+            "Le chiffre choisi n'existe pas dans le mode binaire actuel. "
+            "Passez en mode multiclasse."
+        )
+    else:
+        normal_data = X_train[y_train == target_digit]
+
+        sample_limit = min(1500, len(normal_data))
+        normal_data = normal_data[:sample_limit]
+
+        oneclass_components = st.slider(
+            "Composantes ACP pour One-Class SVM",
+            2,
+            30,
+            10,
+        )
+        nu_value = st.slider(
+            "Nu : proportion d'anomalies tolérée",
+            0.01,
+            0.30,
+            0.08,
+            0.01,
+        )
+
+        pca_one = PCA(
+            n_components=oneclass_components,
+            random_state=42,
+        )
+        normal_reduced = pca_one.fit_transform(normal_data)
+        test_reduced = pca_one.transform(X_test)
+
+        oneclass = OneClassSVM(
+            kernel="rbf",
+            gamma="scale",
+            nu=nu_value,
+        )
+        oneclass.fit(normal_reduced)
+
+        predictions = oneclass.predict(test_reduced)
+        expected_normal = y_test == target_digit
+
+        detected_normal = predictions == 1
+        correct_detection = np.mean(
+            detected_normal == expected_normal
+        )
+
+        o1, o2, o3 = st.columns(3)
+        o1.metric(
+            "Accuracy détection",
+            f"{correct_detection * 100:.2f}%",
+        )
+        o2.metric(
+            "Reconnu comme normal",
+            int(detected_normal.sum()),
+        )
+        o3.metric(
+            "Reconnu comme anomalie",
+            int((~detected_normal).sum()),
+        )
+
+        st.write(
+            "Le modèle est entraîné uniquement sur le chiffre "
+            f"{target_digit}. Il apprend la région normale de cette classe, "
+            "puis rejette les observations différentes."
+        )
+
+        pca_visual = PCA(
+            n_components=2,
+            random_state=42,
+        )
+        visual_data = pca_visual.fit_transform(
+            X_test[: min(2500, len(X_test))]
+        )
+        visual_pred = predictions[
+            : len(visual_data)
+        ]
+
+        figure, ax = plt.subplots(figsize=(7, 5))
+        ax.scatter(
+            visual_data[visual_pred == 1, 0],
+            visual_data[visual_pred == 1, 1],
+            s=8,
+            label=f"Reconnu comme {target_digit}",
+        )
+        ax.scatter(
+            visual_data[visual_pred == -1, 0],
+            visual_data[visual_pred == -1, 1],
+            s=8,
+            label="Anomalie",
+        )
+        ax.set(
+            xlabel="PC1",
+            ylabel="PC2",
+            title="Résultats One-Class SVM",
+        )
+        ax.legend()
+        st.pyplot(figure)
+        plt.close(figure)
+
+
+# =========================================================
+# INTELLIGENT TEST
+# =========================================================
+
+with tabs[7]:
+    st.header("Tester une image ou dessiner un chiffre")
+
+    external_model = SVC(
+        kernel="rbf",
+        C=10,
+        gamma="scale",
+        probability=True,
+        random_state=42,
+    )
+
+    with st.spinner(
+        "Préparation du modèle de reconnaissance..."
+    ):
+        external_model.fit(X_train, y_train)
+
+    external_accuracy = accuracy_score(
+        y_test,
+        external_model.predict(X_test),
     )
 
     st.caption(
-        f"Précision du modèle dédié aux images externes sur le jeu de test : "
-        f"{external_test_accuracy * 100:.2f}%"
+        f"Accuracy du modèle externe sur le jeu de test : "
+        f"{external_accuracy * 100:.2f}%"
     )
 
-    upload_column, draw_column = st.columns(2)
+    upload_tab, drawing_tab, random_tab = st.tabs(
+        [
+            "📤 Importer",
+            "✍️ Dessiner",
+            "🎲 Exemple aléatoire",
+        ]
+    )
 
-    with upload_column:
-        st.markdown("### Télécharger une image")
-
+    with upload_tab:
         uploaded_file = st.file_uploader(
-            "PNG, JPG ou JPEG",
+            "Importer une image contenant un seul chiffre",
             type=["png", "jpg", "jpeg"],
-            key="digit_upload",
         )
 
-        if uploaded_file is not None:
-            try:
-                uploaded_image = Image.open(uploaded_file)
+        if uploaded_file:
+            image = Image.open(uploaded_file)
+            processed_image, vector = preprocess_external_image(
+                image
+            )
 
-                processed_image, processed_vector = prepare_image_for_digits(
-                    uploaded_image
-                )
+            prediction = int(
+                external_model.predict(vector)[0]
+            )
+            probabilities = external_model.predict_proba(
+                vector
+            )[0]
+            confidence = float(probabilities.max())
 
-                uploaded_prediction = int(
-                    external_input_model.predict(processed_vector)[0]
-                )
-                uploaded_confidence = prediction_confidence(
-                    external_input_model,
-                    processed_vector,
-                )
+            c1, c2 = st.columns(2)
+            c1.image(
+                image,
+                caption="Image originale",
+                use_container_width=True,
+            )
+            c2.image(
+                processed_image,
+                caption="Image préparée 28 × 28",
+                clamp=True,
+                use_container_width=True,
+            )
 
-                st.image(
-                    uploaded_image,
-                    width=230,
-                    caption="Image originale",
-                )
+            st.success(
+                f"Prédiction : {prediction} — "
+                f"Confiance : {confidence * 100:.2f}%"
+            )
 
-                st.image(
-                    processed_image,
-                    width=230,
-                    caption="Image traitée en 8 × 8",
-                    clamp=True,
-                )
+            probability_table = pd.DataFrame(
+                {
+                    "Chiffre": external_model.classes_,
+                    "Probabilité": probabilities,
+                }
+            ).sort_values("Probabilité", ascending=False)
 
-                st.metric(
-                    "Prédiction",
-                    uploaded_prediction,
-                )
+            st.bar_chart(
+                probability_table.set_index("Chiffre"),
+                use_container_width=True,
+            )
 
-                if uploaded_confidence is not None:
-                    st.metric(
-                        "Confiance",
-                        f"{uploaded_confidence * 100:.2f}%",
-                    )
-
-            except Exception as upload_error:
-                st.error(
-                    "Impossible de traiter cette image. "
-                    f"Détail technique : {upload_error}"
-                )
-
-    with draw_column:
-        st.markdown("### Dessinez un chiffre")
-
-        if "canvas_version" not in st.session_state:
-            st.session_state.canvas_version = 0
-
-        clear_canvas = st.button(
-            "🗑️ Effacer le dessin",
-            use_container_width=True,
-            key="clear_digit_canvas",
-        )
-
-        if clear_canvas:
-            st.session_state.canvas_version += 1
-            st.rerun()
-
+    with drawing_tab:
         if not CANVAS_AVAILABLE:
             st.error(
-                "La zone de dessin n'a pas pu être chargée."
+                "Le composant de dessin n'a pas été chargé. "
+                "Installez les versions compatibles indiquées dans "
+                "requirements.txt, puis redémarrez l'application."
             )
-
-            st.code(
-                "python -m pip uninstall streamlit-drawable-canvas -y\n"
-                "python -m pip install streamlit-drawable-canvas-fix",
-                language="bash",
-            )
-
-            if CANVAS_IMPORT_ERROR:
-                st.caption(
-                    f"Détail technique : {CANVAS_IMPORT_ERROR}"
-                )
-
         else:
-            try:
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 255, 255, 1)",
-                    stroke_width=20,
-                    stroke_color="#FFFFFF",
-                    background_color="#000000",
-                    height=320,
-                    width=320,
-                    drawing_mode="freedraw",
-                    update_streamlit=True,
-                    display_toolbar=True,
-                    key=f"digit_canvas_{st.session_state.canvas_version}",
+            st.markdown(
+                """
+                <div class="insight">
+                    <b>✍️ Zone de dessin</b><br>
+                    Tracez un seul chiffre en blanc, au centre du carré noir.
+                    Utilisez un trait continu et suffisamment large.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if "canvas_version" not in st.session_state:
+                st.session_state.canvas_version = 0
+
+            control_1, control_2 = st.columns([1, 2])
+            with control_1:
+                stroke_width = st.slider(
+                    "Épaisseur",
+                    min_value=10,
+                    max_value=30,
+                    value=20,
+                    step=2,
+                    key="canvas_stroke_width",
                 )
+            with control_2:
+                st.write("")
+                st.write("")
+                if st.button(
+                    "🗑️ Effacer le dessin",
+                    use_container_width=True,
+                ):
+                    st.session_state.canvas_version += 1
+                    st.rerun()
 
-                if canvas_result.image_data is None:
-                    st.warning(
-                        "La zone de dessin est chargée, mais aucune donnée "
-                        "n'a encore été reçue. Dessinez un chiffre dans le carré noir."
+            canvas_result = st_canvas(
+                fill_color="rgba(255,255,255,1)",
+                stroke_width=stroke_width,
+                stroke_color="#FFFFFF",
+                background_color="#000000",
+                width=300,
+                height=300,
+                drawing_mode="freedraw",
+                display_toolbar=True,
+                update_streamlit=True,
+                key=f"mnist_canvas_{st.session_state.canvas_version}",
+            )
+
+            if canvas_result.image_data is None:
+                st.info(
+                    "La zone noire ci-dessus est la surface de dessin."
+                )
+            else:
+                rgb = canvas_result.image_data[:, :, :3].astype(np.uint8)
+                ink_mask = np.max(rgb, axis=2) > 20
+
+                if np.count_nonzero(ink_mask) < 40:
+                    st.caption(
+                        "Dessinez un chiffre pour lancer la prédiction."
                     )
-
                 else:
-                    canvas_array = (
-                        canvas_result.image_data[:, :, :3]
-                        .astype(np.uint8)
+                    drawing = Image.fromarray(rgb)
+                    processed, vector = preprocess_external_image(
+                        drawing
                     )
 
-                    canvas_image = Image.fromarray(
-                        canvas_array
-                    ).convert("L")
-
-                    canvas_processed, canvas_vector = prepare_image_for_digits(
-                        canvas_image
+                    prediction = int(
+                        external_model.predict(vector)[0]
                     )
+                    probabilities = external_model.predict_proba(
+                        vector
+                    )[0]
+                    confidence = float(probabilities.max())
 
-                    ink_level = float(np.mean(canvas_processed))
+                    result_col_1, result_col_2 = st.columns([1, 2])
 
-                    if ink_level <= 0.005:
-                        st.caption(
-                            "Dessinez un chiffre blanc dans la zone noire."
+                    with result_col_1:
+                        st.image(
+                            processed,
+                            caption="Image préparée 28 × 28",
+                            clamp=True,
+                            width=190,
                         )
 
-                    else:
-                        canvas_prediction = int(
-                            external_input_model.predict(canvas_vector)[0]
-                        )
-
-                        canvas_confidence = prediction_confidence(
-                            external_input_model,
-                            canvas_vector,
-                        )
-
-                        p1, p2 = st.columns(2)
-
-                        with p1:
-                            st.image(
-                                canvas_array,
-                                width=220,
-                                caption="Votre dessin",
-                            )
-
-                        with p2:
-                            st.image(
-                                canvas_processed,
-                                width=180,
-                                caption="Version 8 × 8",
-                                clamp=True,
-                            )
-
+                    with result_col_2:
                         st.metric(
-                            "Prédiction",
-                            canvas_prediction,
+                            "Chiffre reconnu",
+                            prediction,
+                        )
+                        st.metric(
+                            "Confiance",
+                            f"{confidence * 100:.2f}%",
                         )
 
-                        if canvas_confidence is not None:
-                            st.metric(
-                                "Confiance",
-                                f"{canvas_confidence * 100:.2f}%",
-                            )
+                    probability_table = pd.DataFrame(
+                        {
+                            "Chiffre": external_model.classes_,
+                            "Probabilité": probabilities,
+                        }
+                    ).sort_values(
+                        "Probabilité",
+                        ascending=False,
+                    )
 
+                    st.bar_chart(
+                        probability_table.set_index("Chiffre"),
+                        use_container_width=True,
+                    )
+
+                    if confidence < 0.60:
+                        st.warning(
+                            "La confiance est faible. Redessinez le chiffre "
+                            "plus grand, plus centré et avec un trait continu."
+                        )
+                    else:
                         st.success(
-                            "Pipeline appliqué : dessin → recadrage → centrage → "
-                            "image 8 × 8 → 64 pixels → SVM RBF → prédiction."
+                            "Le dessin a été correctement traité par le pipeline "
+                            "MNIST 28 × 28."
                         )
 
-            except Exception as canvas_runtime_error:
-                st.error(
-                    "La bibliothèque de dessin est installée, mais le composant "
-                    "n'a pas pu être affiché correctement."
-                )
+    with random_tab:
+        random_index = st.number_input(
+            "Indice de l'image",
+            min_value=0,
+            max_value=len(X_test) - 1,
+            value=0,
+            step=1,
+        )
 
-                st.code(
-                    "python -m pip uninstall streamlit-drawable-canvas -y\n"
-                    "python -m pip install --upgrade streamlit-drawable-canvas-fix",
-                    language="bash",
-                )
+        random_image = X_test[int(random_index)]
+        random_prediction = int(
+            external_model.predict(
+                random_image.reshape(1, -1)
+            )[0]
+        )
 
-                st.caption(
-                    f"Détail technique : {canvas_runtime_error}"
-                )
-
-
-# =========================================================
-# TAB: ANOMALY DETECTION
-# =========================================================
-
-with tab_anomaly:
-    st.subheader("One-Class SVM anomaly detection")
-
-    normal_digit = st.selectbox(
-        "Digit considered normal",
-        options=[int(value) for value in classes],
-    )
-
-    normal_data = X_pca[y == normal_digit]
-    one_class_model = OneClassSVM(
-        kernel="rbf",
-        gamma="scale",
-        nu=.05,
-    )
-    one_class_model.fit(normal_data)
-
-    anomaly_result = int(one_class_model.predict(selected_sample_pca)[0])
-
-    a1, a2 = st.columns(2)
-    with a1:
         st.image(
-            X[selected_index].reshape(8, 8),
-            width=230,
-            caption="Selected image",
+            random_image.reshape(28, 28),
+            caption=(
+                f"Valeur réelle : {y_test[int(random_index)]} — "
+                f"Prédiction : {random_prediction}"
+            ),
             clamp=True,
-        )
-    with a2:
-        st.metric("True digit", int(y[selected_index]))
-        st.metric("Normal class", normal_digit)
-
-        if anomaly_result == 1:
-            st.success("The sample is accepted as normal.")
-        else:
-            st.error("The sample is detected as an anomaly.")
-
-    all_anomaly_predictions = one_class_model.predict(X_pca)
-
-    fig_anomaly, ax_anomaly = plt.subplots(figsize=(8, 6))
-    ax_anomaly.scatter(
-        X_pca[all_anomaly_predictions == 1, 0],
-        X_pca[all_anomaly_predictions == 1, 1],
-        s=20,
-        label="Accepted",
-    )
-    ax_anomaly.scatter(
-        X_pca[all_anomaly_predictions == -1, 0],
-        X_pca[all_anomaly_predictions == -1, 1],
-        s=20,
-        label="Anomaly",
-    )
-    ax_anomaly.scatter(
-        selected_sample_pca[:, 0],
-        selected_sample_pca[:, 1],
-        s=260,
-        marker="X",
-        label="Selected image",
-    )
-    ax_anomaly.set_title("One-Class SVM")
-    ax_anomaly.set_xlabel("PC1")
-    ax_anomaly.set_ylabel("PC2")
-    ax_anomaly.grid(alpha=.2)
-    ax_anomaly.legend()
-    st.pyplot(fig_anomaly, use_container_width=True)
-
-
-# =========================================================
-# TAB: MATHEMATICS
-# =========================================================
-
-with tab_math:
-    st.subheader("Mathematical foundations")
-
-    st.markdown("### 1. PCA")
-    st.latex(r"X_{\mathrm{new}}=XW")
-    st.info(
-        "L'ACP projette les données sur de nouveaux axes afin de conserver "
-        "le maximum de variance tout en réduisant la dimension."
-    )
-
-    st.markdown("### 2. UMAP")
-    st.latex(
-        r"\min_Y \sum_{i\ne j}\left["
-        r"v_{ij}\log\left(\frac{v_{ij}}{w_{ij}}\right)"
-        r"+(1-v_{ij})\log\left(\frac{1-v_{ij}}{1-w_{ij}}\right)"
-        r"\right]"
-    )
-    st.info(
-        "UMAP construit un graphe de voisinage dans l'espace original puis "
-        "cherche une projection qui conserve au mieux ces relations."
-    )
-
-    st.markdown("### 3. t-SNE")
-    st.latex(
-        r"C=KL(P\|Q)=\sum_{i\ne j}p_{ij}"
-        r"\log\left(\frac{p_{ij}}{q_{ij}}\right)"
-    )
-    st.info(
-        "t-SNE minimise la divergence entre les similarités de l'espace "
-        "original et celles de la projection."
-    )
-
-    st.markdown("### 4. Logistic Regression")
-    st.latex(r"P(y=1\mid x)=\frac{1}{1+e^{-(w^Tx+b)}}")
-    st.info(
-        "La fonction sigmoïde transforme une combinaison linéaire en une "
-        "probabilité comprise entre 0 et 1."
-    )
-
-    st.markdown("### 5. LDA")
-    st.latex(r"J(w)=\frac{w^TS_Bw}{w^TS_Ww}")
-    st.info(
-        "LDA maximise la séparation entre les classes et minimise leur "
-        "dispersion interne."
-    )
-
-    st.markdown("### 6. Bayes")
-    st.latex(r"P(C_k\mid x)=\frac{P(x\mid C_k)P(C_k)}{P(x)}")
-    st.info(
-        "La règle de Bayes estime la probabilité d'appartenance à une classe "
-        "après observation des données."
-    )
-
-    st.markdown("### 7. QDA")
-    st.latex(
-        r"\delta_k(x)=-\frac12\ln|\Sigma_k|"
-        r"-\frac12(x-\mu_k)^T\Sigma_k^{-1}(x-\mu_k)+\ln(\pi_k)"
-    )
-    st.info(
-        "QDA utilise une covariance propre à chaque classe et produit des "
-        "frontières quadratiques."
-    )
-
-    st.markdown("### 8. Decision Tree")
-    st.latex(r"H(S)=-\sum_i p_i\log_2(p_i)")
-    st.info(
-        "L'entropie mesure l'incertitude utilisée pour sélectionner les "
-        "meilleures divisions."
-    )
-
-    st.markdown("### 9. KNN")
-    st.latex(
-        r"d(x_i,x_j)=\sqrt{\sum_{\ell=1}^{p}"
-        r"(x_{i\ell}-x_{j\ell})^2}"
-    )
-    st.info(
-        "KNN classe une observation selon les classes de ses voisins les "
-        "plus proches."
-    )
-
-    st.markdown("### 10. One-Class SVM")
-    st.latex(r"f(x)=\operatorname{sign}(w^T\phi(x)-\rho)")
-    st.info(
-        "One-Class SVM apprend la frontière d'une classe normale et détecte "
-        "les observations atypiques."
-    )
-
-    st.markdown("### 11. Accuracy")
-    st.latex(
-        r"\mathrm{Accuracy}="
-        r"\frac{\mathrm{Correct\ predictions}}{\mathrm{Total\ predictions}}"
-    )
-    st.info(
-        "L'accuracy représente la proportion totale des prédictions correctes."
-    )
-
-
-# =========================================================
-# TAB: PROJECT DASHBOARD
-# =========================================================
-
-with tab_project:
-    st.subheader("Model ranking dashboard")
-
-    ranking_results = []
-
-    for model_name, candidate in models.items():
-        candidate_model = clone(candidate)
-        start = time.perf_counter()
-        candidate_model.fit(X_train, y_train)
-        fit_time = time.perf_counter() - start
-
-        start = time.perf_counter()
-        candidate_predictions = candidate_model.predict(X_test)
-        inference_time = time.perf_counter() - start
-
-        ranking_results.append(
-            {
-                "Model": model_name,
-                "Accuracy": accuracy_score(y_test, candidate_predictions),
-                "Training time": fit_time,
-                "Prediction time": inference_time,
-            }
+            width=220,
         )
 
-    ranking_df = pd.DataFrame(ranking_results).sort_values(
-        ["Accuracy", "Prediction time"],
-        ascending=[False, True],
-    ).reset_index(drop=True)
 
-    ranking_df.insert(0, "Rank", np.arange(1, len(ranking_df) + 1))
+# =========================================================
+# ORAL REVIEW
+# =========================================================
 
-    st.dataframe(
-        ranking_df.round(
-            {
-                "Accuracy": 4,
-                "Training time": 6,
-                "Prediction time": 6,
-            }
+with tabs[8]:
+    st.header("Révision rapide pour l'oral")
+
+    oral_questions = [
+        (
+            "Quel est l'objectif de l'ACP ?",
+            "Réduire la dimension, supprimer la redondance, "
+            "faciliter la visualisation et conserver un maximum de variance.",
         ),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Accuracy": st.column_config.NumberColumn(format="%.4f"),
-            "Training time": st.column_config.NumberColumn(format="%.6f"),
-            "Prediction time": st.column_config.NumberColumn(format="%.6f"),
-        },
+        (
+            "Feature Selection ou Feature Extraction ?",
+            "La sélection conserve certaines variables originales. "
+            "L'extraction crée de nouvelles variables, comme les composantes ACP.",
+        ),
+        (
+            "Quand utiliser LDA ?",
+            "Lorsque les classes peuvent être séparées par une frontière "
+            "linéaire et que les matrices de covariance sont proches.",
+        ),
+        (
+            "Quand utiliser QDA ?",
+            "Lorsque chaque classe peut avoir sa propre covariance "
+            "et que la frontière de décision doit être quadratique.",
+        ),
+        (
+            "Comment choisir K dans KNN ?",
+            "Tester plusieurs valeurs par validation croisée. "
+            "Un K trop petit risque l'overfitting, un K trop grand l'underfitting.",
+        ),
+        (
+            "Pourquoi limiter la profondeur d'un arbre ?",
+            "Pour réduire l'overfitting et améliorer la généralisation.",
+        ),
+        (
+            "Qu'est-ce que One-Class SVM ?",
+            "Une méthode entraînée sur une seule classe normale "
+            "afin de détecter les observations différentes ou anormales.",
+        ),
+        (
+            "Le modèle est-il généralisé ?",
+            "On compare les performances train/test et on utilise "
+            "la validation croisée. Des résultats proches et stables "
+            "indiquent une bonne généralisation.",
+        ),
+        (
+            "Accuracy ou F1-score ?",
+            "Accuracy convient aux classes équilibrées. "
+            "F1-score est préférable lorsque les classes sont déséquilibrées.",
+        ),
+        (
+            "Pourquoi MNIST 28 × 28 ?",
+            "MNIST représente chaque chiffre par 784 pixels. "
+            "Cette résolution offre plus d'information que Digits 8 × 8 "
+            "et correspond exactement au dataset demandé dans les TP.",
+        ),
+    ]
+
+    for question, answer in oral_questions:
+        with st.expander(question):
+            st.write(answer)
+
+    st.subheader("Phrase finale pour la soutenance")
+    st.success(
+        "Cette application ne se limite pas à afficher une accuracy. "
+        "Elle présente le workflow complet, compare les algorithmes, "
+        "explique les métriques et vérifie la généralisation sur des "
+        "données MNIST jamais vues."
     )
 
-    best_model_name = ranking_df.iloc[0]["Model"]
-    st.success(f"🥇 Best current model: {best_model_name}")
-
-    fig_ranking, ax_ranking = plt.subplots(figsize=(8, 5))
-    ax_ranking.bar(ranking_df["Model"], ranking_df["Accuracy"])
-    ax_ranking.set_title("Accuracy comparison")
-    ax_ranking.set_ylabel("Accuracy")
-    ax_ranking.set_ylim(0, 1.05)
-    ax_ranking.tick_params(axis="x", rotation=25)
-    ax_ranking.grid(axis="y", alpha=.2)
-    st.pyplot(fig_ranking, use_container_width=True)
-
-    st.markdown("### Complexity analysis")
-    st.dataframe(
-        model_complexity_table(),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.markdown("### Project positioning")
-    st.write(
-        "This application is no longer limited to a simple classifier. "
-        "It combines exploratory analysis, nonlinear visualization, model "
-        "comparison, cross-validation, hyperparameter optimization, ROC/AUC, "
-        "learning curves, overfitting analysis, explainability, drawing, "
-        "image upload and anomaly detection."
-    )
-
-
-# =========================================================
-# FOOTER
-# =========================================================
-
-st.markdown("---")
-st.caption(
-    "Developed by AYYOUB REGUIGUE | Master IA | "
-    "Python • Scikit-learn • UMAP • Streamlit"
+st.markdown(
+    """
+    <div class="footer">
+        NeuroVision MNIST Studio • Projet académique interactif •
+        Réduction de dimension, classification et généralisation
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
